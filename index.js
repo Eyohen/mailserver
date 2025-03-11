@@ -1,210 +1,197 @@
-// emailServer.js
+// email-server.js
 const express = require('express');
 const nodemailer = require('nodemailer');
-const cors = require('cors');
+const bodyParser = require('body-parser');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
-app.use(express.json());
-app.use(cors());
+const PORT = process.env.PORT || 3001;
 
-// Secure API key middleware
-const validateApiKey = (req, res, next) => {
+// Middleware
+app.use(bodyParser.json());
+
+// API key authentication middleware
+const authenticateApiKey = (req, res, next) => {
   const apiKey = req.headers['x-api-key'];
-  if (!apiKey || apiKey !== process.env.MAIL_API_KEY) {
-    return res.status(401).json({ error: 'Unauthorized' });
+  
+  if (!apiKey) {
+    return res.status(401).json({ 
+      success: false, 
+      message: 'API key is required' 
+    });
   }
+  
+  // Check if the API key is valid
+  if (apiKey !== process.env.API_KEY) {
+    return res.status(403).json({ 
+      success: false, 
+      message: 'Invalid API key' 
+    });
+  }
+  
   next();
 };
 
-// Create Nodemailer transporter
+// Create a transporter object using SMTP
 const transporter = nodemailer.createTransport({
-  host: 'smtp.zoho.com',
-  port: 587,
-  secure: false,
+  host: process.env.SMTP_HOST,
+  // port: Number(process.env.SMTP_PORT ) || 587,
+  port: 465,
+  //secure: process.env.SMTP_SECURE === '465', // true for 465, false for other ports
+  secure: true,
   auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS
+
   },
+  debug:true
+
 });
 
-// Verification email endpoint
-app.post('/api/send-verification', validateApiKey, async (req, res) => {
-  const { email, token } = req.body;
-  
-  try {
-    const mailOptions = {
-      from: `"Pigeonhire Support" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: "Verify your email address",
-      html: `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verify Your Email</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #fff;
-            color: #333;
-            margin: 0;
-            padding: 0;
-        }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        .header h1 {
-            color: #F08E1F;
-        }
-        .content {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        .content p {
-            font-size: 16px;
-            margin-bottom: 20px;
-        }
-        .button {
-            display: inline-block;
-            padding: 10px 20px;
-            background-color: #F08E1F;
-            color: #fff;
-            text-decoration: none;
-            border-radius: 5px;
-            font-size: 16px;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 20px;
-            font-size: 14px;
-            color: #777;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Email Verification</h1>
-        </div>
-        <div class="content">
-            <p>Please verify your email address by clicking the link below:</p>
-            <a href="${process.env.FRONTEND_URL}/verify?token=${token}" class="button">Verify Email</a>
-        </div>
-        <div class="footer">
-            <p>If you did not request this email, please ignore it.</p>
-        </div>
-    </div>
-</body>
-</html>`
-    };
+// Use .then/.catch instead of await
+transporter.verify()
+  .then(verification => {
+    console.log('Server is ready to take messages:', verification);
+  })
+  .catch(error => {
+    console.error('Connection failed:', error);
+  });
 
-    await transporter.sendMail(mailOptions);
-    res.json({ success: true, message: 'Verification email sent successfully' });
+// Basic health check endpoint - public access
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ status: 'OK', message: 'PaperSignal email API service is running' });
+});
+
+// Generate API key endpoint - only accessible in development
+if (process.env.NODE_ENV === 'development') {
+  app.get('/api/generate-key', (req, res) => {
+    const newApiKey = crypto.randomBytes(32).toString('hex');
+    console.log('Generated new API key (for development only):', newApiKey);
+    res.status(200).json({ 
+      success: true, 
+      message: 'New API key generated (for development only)',
+      apiKey: newApiKey
+    });
+  });
+}
+
+// Send email endpoint - protected
+app.post('/api/send-email', authenticateApiKey, async (req, res) => {
+  try {
+    const { to, subject, text, html, from, cc, bcc } = req.body;
+    
+    // Basic validation
+    if (!to) {
+      return res.status(400).json({ success: false, message: 'Recipient email is required' });
+    }
+    
+    if (!subject || !text) {
+      return res.status(400).json({ success: false, message: 'Subject and text content are required' });
+    }
+    
+    // Prepare email options
+    const mailOptions = {
+      from: from,
+      to,
+      subject,
+      text,
+      html: html || text // Use HTML if provided, otherwise use plain text
+    };
+    
+    // Add CC and BCC if provided
+    if (cc) mailOptions.cc = cc;
+    if (bcc) mailOptions.bcc = bcc;
+    
+    // Send email
+    const info = await transporter.sendMail(mailOptions);
+    
+    console.log('Email sent successfully:', info.messageId);
+    
+    res.status(200).json({
+      success: true,
+      message: 'Email sent successfully',
+      messageId: info.messageId
+    });
+    
   } catch (error) {
-    console.error('Error sending verification email:', error);
-    res.status(500).json({ error: 'Failed to send verification email' });
+    console.log('Error sending email:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to send email',
+      error: error.message
+    });
   }
 });
 
-// Reset password email endpoint
-app.post('/api/send-reset-password', validateApiKey, async (req, res) => {
-  const { email, otp } = req.body;
-  
+// Bulk send email endpoint - protected
+app.post('/api/bulk-send-email', authenticateApiKey, async (req, res) => {
   try {
-    const mailOptions = {
-      from: `"Pigeonhire Support" <${process.env.EMAIL_USER}>`,
-      to: email,
-      subject: "Password Reset OTP",
-      html: `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Password Reset OTP</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #fff;
-            color: #333;
-            margin: 0;
-            padding: 0;
-        }
-        .container {
-            max-width: 600px;
-            margin: 0 auto;
-            padding: 20px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-        }
-        .header {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        .header h1 {
-            color: #F08E1F;
-        }
-        .content {
-            text-align: center;
-            margin-bottom: 20px;
-        }
-        .content p {
-            font-size: 16px;
-            margin-bottom: 20px;
-        }
-        .otp {
-            display: inline-block;
-            padding: 10px 20px;
-            background-color: #F08E1F;
-            color: #fff;
-            font-size: 20px;
-            font-weight: bold;
-            border-radius: 5px;
-            margin-top: 20px;
-        }
-        .footer {
-            text-align: center;
-            margin-top: 20px;
-            font-size: 14px;
-            color: #777;
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h1>Password Reset OTP</h1>
-        </div>
-        <div class="content">
-            <p>Your OTP for password reset is:</p>
-            <div class="otp">${otp}</div>
-            <p>This otp will expire in 10 minutes.</p>
-        </div>
-        <div class="footer">
-            <p>If you did not request a password reset, please ignore this email.</p>
-        </div>
-    </div>
-</body>
-</html>`
-    };
-
-    await transporter.sendMail(mailOptions);
-    res.json({ success: true, message: 'Reset password email sent successfully' });
+    const { recipients, subject, text, html, from } = req.body;
+    
+    // Basic validation
+    if (!recipients || !Array.isArray(recipients) || recipients.length === 0) {
+      return res.status(400).json({ success: false, message: 'Recipients list is required and must be an array' });
+    }
+    
+    if (!subject || !text) {
+      return res.status(400).json({ success: false, message: 'Subject and text content are required' });
+    }
+    
+    const results = [];
+    
+    // Send emails to each recipient
+    for (const recipient of recipients) {
+      try {
+        const mailOptions = {
+          from: from || process.env.DEFAULT_FROM_EMAIL,
+          to: recipient,
+          subject,
+          text,
+          html: html || text
+        };
+        
+        const info = await transporter.sendMail(mailOptions);
+        
+        results.push({
+          email: recipient,
+          success: true,
+          messageId: info.messageId
+        });
+        
+        console.log(`Email sent to ${recipient}:`, info.messageId);
+        
+      } catch (error) {
+        results.push({
+          email: recipient,
+          success: false,
+          error: error.message
+        });
+        
+        console.log(`Error sending email to ${recipient}:`, error);
+      }
+    }
+    
+    res.status(200).json({
+      success: true,
+      message: 'Bulk email processing completed',
+      results
+    });
+    
   } catch (error) {
-    console.error('Error sending reset password email:', error);
-    res.status(500).json({ error: 'Failed to send reset password email' });
+    console.log('Error processing bulk emails:', error);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to process bulk emails',
+      error: error.message
+    });
   }
 });
 
-const PORT = process.env.PORT || 3001;
+// Start the server
 app.listen(PORT, () => {
-  console.log(`Email server running on port ${PORT}`);
+  console.log(`PaperSignal API server running on port ${PORT}`);
 });
+
