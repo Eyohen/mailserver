@@ -1,6 +1,6 @@
 const express = require('express');
 
-const {create, readall, readId, update, deleteId} = require('../controller/contentShared')
+const {create, readAll,  readById, update, deleteById} = require('../controller/receipt')
 
 
 
@@ -8,28 +8,25 @@ const router = express.Router();
 
 router.post(
 	'/create',
-    // verifyToken,
     create
 );
 
 router.get(
     '/',
-    readall
+    readAll
 );
 router.get(
 	'/:id',
-    // verifyToken,
-    readId
+    readById
 );
 router.put(
     '/:id',
-    // verifyToken,
     update
 );
 router.delete(
     '/:id',
-    // verifyToken,
-    deleteId
+    deleteById
 );
+
 
 module.exports = router;

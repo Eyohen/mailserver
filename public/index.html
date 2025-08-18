@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Modern Chat App</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    animation: {
+                        'fade-in': 'fadeIn 0.3s ease-in-out',
+                        'slide-up': 'slideUp 0.3s ease-out',
+                        'pulse-dot': 'pulseDot 1.4s infinite ease-in-out'
+                    },
+                    keyframes: {
+                        fadeIn: {
+                            '0%': { opacity: '0' },
+                            '100%': { opacity: '1' }
+                        },
+                        slideUp: {
+                            '0%': { transform: 'translateY(10px)', opacity: '0' },
+                            '100%': { transform: 'translateY(0)', opacity: '1' }
+                        },
+                        pulseDot: {
+                            '0%, 80%, 100%': { transform: 'scale(0)' },
+                            '40%': { transform: 'scale(1)' }
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-50 h-screen flex items-center justify-center p-4">
+    <!-- Username Modal -->
+    <div id="usernameModal" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div class="bg-white rounded-2xl p-8 shadow-2xl max-w-md w-full mx-4 animate-slide-up">
+            <div class="text-center mb-6">
+                <div class="w-16 h-16 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full mx-auto mb-4 flex items-center justify-center">
+                    <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"></path>
+                    </svg>
+                </div>
+                <h2 class="text-2xl font-bold text-gray-800 mb-2">Join Chat</h2>
+                <p class="text-gray-600">Enter your name to start chatting</p>
+            </div>
+            <form id="usernameForm">
+                <input type="text" id="usernameInput" placeholder="Your name..." 
+                       class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-200 mb-4">
+                <button type="submit" 
+                        class="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-3 rounded-xl font-semibold hover:from-blue-600 hover:to-purple-700 transition-all duration-200 transform hover:scale-[1.02]">
+                    Start Chatting
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Main Chat Interface -->
+    <div id="chatContainer" class="hidden w-full max-w-6xl h-full max-h-[800px] bg-white rounded-2xl shadow-2xl overflow-hidden flex">
+        <!-- Sidebar -->
+        <div class="w-80 bg-gray-900 text-white flex flex-col">
+            <!-- Header -->
+            <div class="p-6 border-b border-gray-700">
+                <h1 class="text-xl font-bold flex items-center">
+                    <div class="w-3 h-3 bg-green-400 rounded-full mr-3 animate-pulse"></div>
+                    Customer Care
+                </h1>
+                <p class="text-gray-400 text-sm mt-1">Real-time messaging</p>
+            </div>
+
+            <!-- Online Users -->
+            <div class="p-6 flex-1">
+                <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-4">Online Users</h3>
+                <div id="usersList" class="space-y-2">
+                    <!-- Users will be populated here -->
+                </div>
+            </div>
+
+            <!-- User Info -->
+            <div class="p-6 border-t border-gray-700">
+                <div class="flex items-center">
+                    <div class="w-10 h-10 bg-gradient-to-r from-blue-500 to-purple-600 rounded-full flex items-center justify-center mr-3">
+                        <span id="userInitial" class="text-white font-semibold"></span>
+                    </div>
+                    <div>
+                        <div id="currentUsername" class="font-semibold"></div>
+                        <div class="text-xs text-gray-400">Online</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Area -->
+        <div class="flex-1 flex flex-col">
+            <!-- Chat Header -->
+            <div class="p-6 border-b border-gray-200 bg-white">
+                <h2 class="text-xl font-semibold text-gray-800">General Chat</h2>
+                <p class="text-gray-500 text-sm">Share your thoughts with everyone</p>
+            </div>
+
+            <!-- Messages Container -->
+            <div id="messagesContainer" class="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50">
+                <!-- Messages will be populated here -->
+            </div>
+
+            <!-- Typing Indicator -->
+            <div id="typingIndicator" class="hidden px-6 py-2">
+                <div class="flex items-center text-gray-500 text-sm">
+                    <div class="flex space-x-1 mr-2">
+                        <div class="w-2 h-2 bg-gray-400 rounded-full animate-pulse-dot"></div>
+                        <div class="w-2 h-2 bg-gray-400 rounded-full animate-pulse-dot" style="animation-delay: 0.2s"></div>
+                        <div class="w-2 h-2 bg-gray-400 rounded-full animate-pulse-dot" style="animation-delay: 0.4s"></div>
+                    </div>
+                    <span id="typingText">Someone is typing...</span>
+                </div>
+            </div>
+
+            <!-- Message Input -->
+            <div class="p-6 border-t border-gray-200 bg-white">
+                <form id="messageForm" class="flex space-x-4">
+                    <input type="text" id="messageInput" placeholder="Type your message..." 
+                           class="flex-1 px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-200">
+                    <button type="submit" 
+                            class="px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-purple-700 transition-all duration-200 transform hover:scale-[1.02] flex items-center">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                        </svg>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let currentUser = '';
+        let typingTimer;
+
+        // DOM elements
+        const usernameModal = document.getElementById('usernameModal');
+        const chatContainer = document.getElementById('chatContainer');
+        const usernameForm = document.getElementById('usernameForm');
+        const usernameInput = document.getElementById('usernameInput');
+        const messageForm = document.getElementById('messageForm');
+        const messageInput = document.getElementById('messageInput');
+        const messagesContainer = document.getElementById('messagesContainer');
+        const usersList = document.getElementById('usersList');
+        const currentUsername = document.getElementById('currentUsername');
+        const userInitial = document.getElementById('userInitial');
+        const typingIndicator = document.getElementById('typingIndicator');
+        const typingText = document.getElementById('typingText');
+
+        // Handle username submission
+        usernameForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const username = usernameInput.value.trim();
+            if (username) {
+                currentUser = username;
+                currentUsername.textContent = username;
+                userInitial.textContent = username.charAt(0).toUpperCase();
+                
+                usernameModal.classList.add('hidden');
+                chatContainer.classList.remove('hidden');
+                
+                socket.emit('user-joined', username);
+                messageInput.focus();
+            }
+        });
+
+        // Handle message submission
+        messageForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            const message = messageInput.value.trim();
+            if (message) {
+                socket.emit('send-message', { message });
+                messageInput.value = '';
+                socket.emit('typing', false);
+            }
+        });
+
+        // Handle typing indicator
+        messageInput.addEventListener('input', () => {
+            socket.emit('typing', true);
+            clearTimeout(typingTimer);
+            typingTimer = setTimeout(() => {
+                socket.emit('typing', false);
+            }, 1000);
+        });
+
+        // Socket event listeners
+        socket.on('receive-message', (data) => {
+            addMessage(data);
+        });
+
+        socket.on('user-connected', (data) => {
+            addSystemMessage(data.message, 'joined');
+        });
+
+        socket.on('user-disconnected', (data) => {
+            addSystemMessage(data.message, 'left');
+        });
+
+        socket.on('users-update', (users) => {
+            updateUsersList(users);
+        });
+
+        socket.on('user-typing', (data) => {
+            if (data.isTyping) {
+                typingText.textContent = `${data.username} is typing...`;
+                typingIndicator.classList.remove('hidden');
+            } else {
+                typingIndicator.classList.add('hidden');
+            }
+        });
+
+        // Helper functions
+        function addMessage(data) {
+            const isOwnMessage = data.userId === socket.id;
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `flex ${isOwnMessage ? 'justify-end' : 'justify-start'} animate-fade-in`;
+            
+            const time = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            
+            messageDiv.innerHTML = `
+                <div class="max-w-xs lg:max-w-md ${isOwnMessage ? 'order-1' : 'order-2'}">
+                    <div class="${isOwnMessage ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white' : 'bg-white text-gray-800 border border-gray-200'} rounded-2xl px-4 py-3 shadow-sm">
+                        ${!isOwnMessage ? `<div class="text-xs font-semibold text-gray-500 mb-1">${data.username}</div>` : ''}
+                        <div class="break-words">${escapeHtml(data.message)}</div>
+                        <div class="text-xs ${isOwnMessage ? 'text-blue-100' : 'text-gray-400'} mt-1">${time}</div>
+                    </div>
+                </div>
+                ${!isOwnMessage ? `
+                <div class="w-8 h-8 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center mr-3 order-1 flex-shrink-0">
+                    <span class="text-white text-sm font-semibold">${data.username.charAt(0).toUpperCase()}</span>
+                </div>
+                ` : ''}
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function addSystemMessage(message, type) {
+            const messageDiv = document.createElement('div');
+            messageDiv.className = 'flex justify-center animate-fade-in';
+            
+            const bgColor = type === 'joined' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+            
+            messageDiv.innerHTML = `
+                <div class="px-4 py-2 rounded-full text-sm ${bgColor}">
+                    ${escapeHtml(message)}
+                </div>
+            `;
+            
+            messagesContainer.appendChild(messageDiv);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        function updateUsersList(users) {
+            usersList.innerHTML = '';
+            users.forEach(user => {
+                const userDiv = document.createElement('div');
+                userDiv.className = 'flex items-center py-2 px-3 rounded-lg hover:bg-gray-800 transition-colors duration-200';
+                userDiv.innerHTML = `
+                    <div class="w-8 h-8 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center mr-3">
+                        <span class="text-white text-sm font-semibold">${user.charAt(0).toUpperCase()}</span>
+                    </div>
+                    <div>
+                        <div class="font-medium">${escapeHtml(user)} ${user === currentUser ? '(You)' : ''}</div>
+                        <div class="text-xs text-green-400">Online</div>
+                    </div>
+                `;
+                usersList.appendChild(userDiv);
+            });
+        }
+
+        function escapeHtml(unsafe) {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        // Focus username input on load
+        usernameInput.focus();
+    </script>
+</body>
+</html>
