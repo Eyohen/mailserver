@@ -389,9 +389,32 @@
             }
         });
 
-        acceptCall.addEventListener('click', () => {
+        acceptCall.addEventListener('click', async () => {
+            console.log('Accept call clicked');
             if (currentCallId) {
-                socket.emit('call-response', { callId: currentCallId, accepted: true });
+                try {
+                    // Get microphone access before accepting
+                    if (!localStream) {
+                        console.log('Getting microphone access for call accept...');
+                        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                        localAudio.srcObject = localStream;
+                        console.log('Microphone access granted');
+                    }
+                    
+                    socket.emit('call-response', { callId: currentCallId, accepted: true });
+                    
+                    // Update UI immediately
+                    callTitle.textContent = 'Call Connected';
+                    callDescription.textContent = 'Call in progress...';
+                    callButtons.classList.add('hidden');
+                    callInProgress.classList.remove('hidden');
+                    
+                } catch (error) {
+                    console.error('Error accepting call:', error);
+                    alert('Could not access microphone. Please check permissions and try again.');
+                    socket.emit('call-response', { callId: currentCallId, accepted: false });
+                    hideCallModal();
+                }
             }
         });
 
@@ -445,6 +468,7 @@
         });
 
         socket.on('call-accepted', () => {
+            console.log('Call was accepted by remote user');
             callTitle.textContent = 'Call Connected';
             callDescription.textContent = 'Call in progress...';
             callButtons.classList.add('hidden');
@@ -452,20 +476,27 @@
         });
 
         socket.on('call-rejected', () => {
+            console.log('Call was rejected');
+            endCurrentCall();
             hideCallModal();
             alert('Call was declined');
         });
 
         socket.on('call-busy', () => {
+            console.log('User is busy');
+            endCurrentCall();
+            hideCallModal();
             alert('User is busy');
         });
 
         socket.on('call-ended', () => {
+            console.log('Call ended by remote user');
             endCurrentCall();
             hideCallModal();
         });
 
         socket.on('start-call', (data) => {
+            console.log('Starting WebRTC call with peer:', data.peerId);
             startWebRTCCall(data.peerId);
         });
 
@@ -641,21 +672,29 @@
             try {
                 peerConnection = new RTCPeerConnection(rtcConfiguration);
                 
-                // Add local stream to peer connection
-                if (localStream) {
-                    localStream.getTracks().forEach(track => {
-                        peerConnection.addTrack(track, localStream);
-                        console.log('Added local track:', track.kind);
-                    });
-                } else {
-                    console.warn('No local stream available');
+                // Ensure we have local stream
+                if (!localStream) {
+                    console.log('Getting microphone access for WebRTC...');
+                    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    localAudio.srcObject = localStream;
                 }
+                
+                // Add local stream to peer connection
+                localStream.getTracks().forEach(track => {
+                    peerConnection.addTrack(track, localStream);
+                    console.log('Added local track:', track.kind);
+                });
                 
                 // Handle remote stream
                 peerConnection.ontrack = (event) => {
                     console.log('Received remote track:', event.streams[0]);
                     remoteStream = event.streams[0];
                     remoteAudio.srcObject = remoteStream;
+                    
+                    // Ensure remote audio plays
+                    remoteAudio.play().catch(e => {
+                        console.log('Auto-play prevented, user interaction required');
+                    });
                 };
                 
                 // Handle ICE candidates
@@ -666,6 +705,8 @@
                             candidate: event.candidate,
                             targetId: peerId
                         });
+                    } else {
+                        console.log('All ICE candidates sent');
                     }
                 };
 
@@ -674,20 +715,21 @@
                     console.log('Connection state changed:', peerConnection.connectionState);
                     if (peerConnection.connectionState === 'connected') {
                         console.log('WebRTC connection established successfully!');
+                    } else if (peerConnection.connectionState === 'failed') {
+                        console.log('WebRTC connection failed');
                     }
                 };
+
+                // Monitor ICE connection state
+                peerConnection.oniceconnectionstatechange = () => {
+                    console.log('ICE connection state:', peerConnection.iceConnectionState);
+                };
                 
-                // Create and send offer if we don't have local stream yet
-                if (!localStream) {
-                    localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    localAudio.srcObject = localStream;
-                    localStream.getTracks().forEach(track => {
-                        peerConnection.addTrack(track, localStream);
-                        console.log('Added local track after getting stream:', track.kind);
-                    });
-                }
-                
-                const offer = await peerConnection.createOffer();
+                // Only create offer if we're the caller (this should be determined by who initiated)
+                // For now, let's assume the first person to call startWebRTCCall creates the offer
+                const offer = await peerConnection.createOffer({
+                    offerToReceiveAudio: true
+                });
                 await peerConnection.setLocalDescription(offer);
                 console.log('Sending offer to peer:', peerId);
                 
@@ -695,6 +737,7 @@
                     offer: offer,
                     targetId: peerId
                 });
+                
             } catch (error) {
                 console.error('Error in startWebRTCCall:', error);
             }
@@ -704,10 +747,12 @@
             console.log('Handling offer from:', senderId);
             
             try {
+                // Ensure we have local stream before handling offer
                 if (!localStream) {
+                    console.log('Getting microphone access to handle offer...');
                     localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
                     localAudio.srcObject = localStream;
-                    console.log('Got local stream for answer');
+                    console.log('Got local stream for handling offer');
                 }
                 
                 peerConnection = new RTCPeerConnection(rtcConfiguration);
@@ -721,6 +766,11 @@
                     console.log('Received remote track in answer:', event.streams[0]);
                     remoteStream = event.streams[0];
                     remoteAudio.srcObject = remoteStream;
+                    
+                    // Ensure remote audio plays
+                    remoteAudio.play().catch(e => {
+                        console.log('Auto-play prevented, user interaction required');
+                    });
                 };
                 
                 peerConnection.onicecandidate = (event) => {
@@ -730,23 +780,39 @@
                             candidate: event.candidate,
                             targetId: senderId
                         });
+                    } else {
+                        console.log('All ICE candidates sent from answerer');
                     }
                 };
 
                 // Monitor connection state
                 peerConnection.onconnectionstatechange = () => {
-                    console.log('Connection state changed:', peerConnection.connectionState);
+                    console.log('Connection state changed (answerer):', peerConnection.connectionState);
+                    if (peerConnection.connectionState === 'connected') {
+                        console.log('WebRTC connection established successfully from answerer!');
+                    }
+                };
+
+                // Monitor ICE connection state
+                peerConnection.oniceconnectionstatechange = () => {
+                    console.log('ICE connection state (answerer):', peerConnection.iceConnectionState);
                 };
                 
                 await peerConnection.setRemoteDescription(offer);
-                const answer = await peerConnection.createAnswer();
+                console.log('Set remote description (offer)');
+                
+                const answer = await peerConnection.createAnswer({
+                    offerToReceiveAudio: true
+                });
                 await peerConnection.setLocalDescription(answer);
+                console.log('Created and set local description (answer)');
                 
                 console.log('Sending answer to:', senderId);
                 socket.emit('webrtc-answer', {
                     answer: answer,
                     targetId: senderId
                 });
+                
             } catch (error) {
                 console.error('Error handling offer:', error);
             }

@@ -384,7 +384,6 @@
 
 
 
-
 const express = require('express');
 const http = require('http');
 const socketIo = require('socket.io');
@@ -578,6 +577,7 @@ io.on('connection', (socket) => {
 
   // Handle call response
   socket.on('call-response', (data) => {
+    console.log('Call response received:', data);
     const { callId, accepted } = data;
     const callInfo = activeCalls.get(socket.id);
     
@@ -585,17 +585,26 @@ io.on('connection', (socket) => {
       const peerId = callInfo.peer;
       
       if (accepted) {
+        console.log('Call accepted, starting WebRTC between', socket.id, 'and', peerId);
         // Notify caller that call was accepted
         io.to(peerId).emit('call-accepted', { callId });
-        // Start WebRTC signaling
-        io.to(peerId).emit('start-call', { peerId: socket.id });
-        socket.emit('start-call', { peerId: peerId });
+        
+        // Small delay to ensure both clients are ready
+        setTimeout(() => {
+          // Start WebRTC signaling - caller initiates
+          io.to(peerId).emit('start-call', { peerId: socket.id });
+          // Receiver waits for offer
+          socket.emit('start-call', { peerId: peerId });
+        }, 500);
       } else {
+        console.log('Call rejected');
         // Call was rejected
         io.to(peerId).emit('call-rejected');
         activeCalls.delete(socket.id);
         activeCalls.delete(peerId);
       }
+    } else {
+      console.log('No call info found for socket:', socket.id);
     }
   });
 
