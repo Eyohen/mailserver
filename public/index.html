@@ -262,6 +262,13 @@
 
         socket.on('disconnect', () => {
             console.log('Disconnected from server');
+            // If in a call, end it cleanly
+            if (callState !== 'idle') {
+                console.log('Socket disconnected during call - ending call');
+                endCurrentCall();
+                hideCallModal();
+                alert('Connection lost. Call ended.');
+            }
         });
 
         socket.on('connect_error', (error) => {
@@ -309,13 +316,19 @@
         const outgoingRingtone = document.getElementById('outgoingRingtone');
         const micStatus = document.getElementById('micStatus');
 
-        // WebRTC configuration
+        // WebRTC configuration with improved settings
         const rtcConfiguration = {
             iceServers: [
                 { urls: 'stun:stun.l.google.com:19302' },
                 { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' }
-            ]
+                { urls: 'stun:stun2.l.google.com:19302' },
+                { urls: 'stun:stun3.l.google.com:19302' },
+                { urls: 'stun:stun4.l.google.com:19302' }
+            ],
+            iceCandidatePoolSize: 10,
+            iceTransportPolicy: 'all',
+            bundlePolicy: 'max-bundle',
+            rtcpMuxPolicy: 'require'
         };
 
         // Audio management functions
@@ -890,11 +903,12 @@
                     console.log('✅ Caller added local track:', track.kind);
                 });
 
-                // Create offer
+                // Create offer with robust constraints
                 console.log('📞 Creating WebRTC offer...');
                 const offer = await peerConnection.createOffer({
                     offerToReceiveAudio: true,
-                    voiceActivityDetection: true
+                    voiceActivityDetection: true,
+                    iceRestart: false
                 });
 
                 await peerConnection.setLocalDescription(offer);
@@ -980,16 +994,16 @@
                 remoteAudio.addEventListener('loadedmetadata', playRemoteAudio, { once: true });
             };
 
-            // Handle ICE candidates
+            // Handle ICE candidates with better logging
             peerConnection.onicecandidate = (event) => {
                 if (event.candidate) {
-                    console.log('Sending ICE candidate to:', peerId);
+                    console.log('ICE candidate found:', event.candidate.type, event.candidate.protocol);
                     socket.emit('webrtc-ice-candidate', {
                         candidate: event.candidate,
                         targetId: peerId
                     });
                 } else {
-                    console.log('All ICE candidates gathered');
+                    console.log('All ICE candidates gathered - ICE gathering complete');
                 }
             };
 
@@ -1035,20 +1049,43 @@
                 switch (iceState) {
                     case 'checking':
                         console.log('ICE checking...');
+                        callDescription.textContent = 'Establishing connection...';
                         break;
                     case 'connected':
                     case 'completed':
                         console.log('🎉 ICE connection successful!');
+                        setCallState('connected');
+                        callTitle.textContent = 'Call Connected';
+                        callDescription.textContent = 'You can now talk!';
                         break;
                     case 'disconnected':
-                        console.log('ICE disconnected');
-                        callDescription.textContent = 'Connection unstable...';
+                        console.log('ICE disconnected - attempting to reconnect...');
+                        callDescription.textContent = 'Connection interrupted - reconnecting...';
+                        // Give it time to reconnect
+                        setTimeout(() => {
+                            if (peerConnection && peerConnection.iceConnectionState === 'disconnected') {
+                                console.log('Could not reconnect');
+                                endCurrentCall();
+                                hideCallModal();
+                                alert('Call disconnected. Please try again.');
+                            }
+                        }, 5000);
                         break;
                     case 'failed':
                         console.log('❌ ICE connection failed');
                         callDescription.textContent = 'Connection failed';
+                        setTimeout(() => {
+                            endCurrentCall();
+                            hideCallModal();
+                            alert('Call connection failed. Please check your network and try again.');
+                        }, 2000);
                         break;
                 }
+            };
+
+            // Monitor ICE gathering state
+            peerConnection.onicegatheringstatechange = () => {
+                console.log('ICE gathering state:', peerConnection.iceGatheringState);
             };
 
             // Handle data channel errors
