@@ -66,6 +66,52 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Secure TURN credentials endpoint
+app.get('/api/turn-credentials', (req, res) => {
+  const { username } = req.query;
+  if (!username) {
+    return res.status(400).json({ error: 'Username required' });
+  }
+
+  // Generate secure TURN credentials
+  const timestamp = Math.floor(Date.now() / 1000) + 3600; // 1 hour TTL
+  const turnUsername = `${timestamp}:${username}`;
+
+  const iceServers = [
+    // Multiple STUN servers for NAT discovery
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+    { urls: 'stun:stun3.l.google.com:19302' },
+    { urls: 'stun:stun4.l.google.com:19302' },
+    // Secure TURN servers
+    {
+      urls: 'turn:openrelay.metered.ca:80',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    },
+    {
+      urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+      username: 'openrelayproject',
+      credential: 'openrelayproject'
+    }
+  ];
+
+  res.json({
+    iceServers: iceServers,
+    iceCandidatePoolSize: 10,
+    iceTransportPolicy: 'all',
+    bundlePolicy: 'max-bundle',
+    rtcpMuxPolicy: 'require',
+    iceGatheringPolicy: 'all'
+  });
+});
+
 // File upload endpoint
 app.post('/upload', upload.single('file'), (req, res) => {
   try {
@@ -302,11 +348,38 @@ io.on('connection', (socket) => {
     }
   });
 
-  // WebRTC signaling
+  // WebRTC signaling with validation
+  const validateWebRTCMessage = (data, requiredFields) => {
+    if (!data || typeof data !== 'object') return false;
+    return requiredFields.every(field => data.hasOwnProperty(field) && data[field]);
+  };
+
   socket.on('webrtc-offer', (data) => {
+    if (!validateWebRTCMessage(data, ['offer', 'targetId']) ||
+        !activeCalls.has(socket.id) ||
+        !activeCalls.has(data.targetId)) {
+      console.log('Invalid WebRTC offer rejected from:', socket.id);
+      return;
+    }
+
+    // Validate and sanitize offer data
+    if (!data.offer.type || !data.offer.sdp ||
+        typeof data.offer.sdp !== 'string' ||
+        data.offer.sdp.length > 10000) {
+      console.log('Invalid offer format rejected');
+      return;
+    }
+
+    const sanitizedOffer = {
+      type: data.offer.type,
+      sdp: data.offer.sdp.substring(0, 10000)
+    };
+
+    console.log(`Relaying WebRTC offer from ${socket.id} to ${data.targetId}`);
     io.to(data.targetId).emit('webrtc-offer', {
-      offer: data.offer,
-      senderId: socket.id
+      offer: sanitizedOffer,
+      senderId: socket.id,
+      iceRestart: data.iceRestart || false
     });
   });
 

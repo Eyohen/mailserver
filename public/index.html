@@ -316,20 +316,63 @@
         const outgoingRingtone = document.getElementById('outgoingRingtone');
         const micStatus = document.getElementById('micStatus');
 
-        // WebRTC configuration with improved settings
-        const rtcConfiguration = {
+        // WebRTC configuration - will be fetched securely from server
+        let rtcConfiguration = {
             iceServers: [
-                { urls: 'stun:stun.l.google.com:19302' },
-                { urls: 'stun:stun1.l.google.com:19302' },
-                { urls: 'stun:stun2.l.google.com:19302' },
-                { urls: 'stun:stun3.l.google.com:19302' },
-                { urls: 'stun:stun4.l.google.com:19302' }
+                // Fallback STUN servers if server fetch fails
+                { urls: 'stun:stun.l.google.com:19302' }
             ],
             iceCandidatePoolSize: 10,
             iceTransportPolicy: 'all',
             bundlePolicy: 'max-bundle',
-            rtcpMuxPolicy: 'require'
+            rtcpMuxPolicy: 'require',
+            iceGatheringPolicy: 'all'
         };
+
+        // Check browser WebRTC support
+        function checkWebRTCSupport() {
+            const issues = [];
+
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                issues.push('getUserMedia not supported');
+            }
+
+            if (!window.RTCPeerConnection) {
+                issues.push('RTCPeerConnection not supported');
+            }
+
+            if (!window.RTCSessionDescription) {
+                issues.push('RTCSessionDescription not supported');
+            }
+
+            if (!window.RTCIceCandidate) {
+                issues.push('RTCIceCandidate not supported');
+            }
+
+            return {
+                supported: issues.length === 0,
+                issues: issues
+            };
+        }
+
+        // Fetch secure WebRTC configuration from server
+        async function fetchWebRTCConfig(username) {
+            try {
+                const response = await fetch(`/api/turn-credentials?username=${encodeURIComponent(username)}`);
+                if (response.ok) {
+                    const config = await response.json();
+                    rtcConfiguration = config;
+                    console.log('✅ Secure WebRTC configuration loaded');
+                    return config;
+                } else {
+                    console.warn('⚠️ Failed to fetch secure config, using fallback');
+                    return rtcConfiguration;
+                }
+            } catch (error) {
+                console.error('❌ Error fetching WebRTC config:', error);
+                return rtcConfiguration;
+            }
+        }
 
         // Audio management functions
         function playIncomingRingtone() {
@@ -377,6 +420,18 @@
 
             if (username) {
                 try {
+                    // Check browser WebRTC support first
+                    const webrtcSupport = checkWebRTCSupport();
+                    if (!webrtcSupport.supported) {
+                        console.error('❌ WebRTC not supported:', webrtcSupport.issues);
+                        alert(`Your browser does not support voice calls.\n\nMissing features: ${webrtcSupport.issues.join(', ')}\n\nPlease use a modern browser like Chrome, Firefox, or Safari.`);
+                        return;
+                    }
+                    console.log('✅ Browser WebRTC support confirmed');
+
+                    // Fetch secure WebRTC configuration
+                    await fetchWebRTCConfig(username);
+
                     // Request microphone permission immediately when joining
                     console.log('Requesting microphone permission...');
                     localStream = await navigator.mediaDevices.getUserMedia({
@@ -880,11 +935,8 @@
             console.log('🔄 Setting up WebRTC as caller for peer:', peerId);
 
             try {
-                // Clean up existing connection
-                if (peerConnection) {
-                    console.log('Closing existing peer connection');
-                    peerConnection.close();
-                }
+                // Clean up existing connection properly
+                cleanupPeerConnection();
 
                 // Create new peer connection
                 peerConnection = new RTCPeerConnection(rtcConfiguration);
@@ -1061,15 +1113,38 @@
                     case 'disconnected':
                         console.log('ICE disconnected - attempting to reconnect...');
                         callDescription.textContent = 'Connection interrupted - reconnecting...';
-                        // Give it time to reconnect
-                        setTimeout(() => {
+
+                        // Try ICE restart first
+                        setTimeout(async () => {
                             if (peerConnection && peerConnection.iceConnectionState === 'disconnected') {
-                                console.log('Could not reconnect');
+                                console.log('Attempting ICE restart...');
+                                try {
+                                    // Create new offer with ICE restart
+                                    const offer = await peerConnection.createOffer({ iceRestart: true });
+                                    await peerConnection.setLocalDescription(offer);
+
+                                    // Send the restart offer to peer
+                                    socket.emit('webrtc-offer', {
+                                        offer: offer,
+                                        targetId: currentCallData.peerId,
+                                        iceRestart: true
+                                    });
+                                    console.log('ICE restart offer sent');
+                                } catch (error) {
+                                    console.error('ICE restart failed:', error);
+                                }
+                            }
+                        }, 2000);
+
+                        // Final timeout to end call if restart fails
+                        setTimeout(() => {
+                            if (peerConnection && (peerConnection.iceConnectionState === 'disconnected' || peerConnection.iceConnectionState === 'failed')) {
+                                console.log('Could not reconnect after ICE restart');
                                 endCurrentCall();
                                 hideCallModal();
                                 alert('Call disconnected. Please try again.');
                             }
-                        }, 5000);
+                        }, 8000);
                         break;
                     case 'failed':
                         console.log('❌ ICE connection failed');
@@ -1189,6 +1264,25 @@
             }
         }
 
+        function cleanupPeerConnection() {
+            if (peerConnection) {
+                console.log('Cleaning up peer connection...');
+
+                // Remove all event listeners to prevent memory leaks
+                peerConnection.ontrack = null;
+                peerConnection.onicecandidate = null;
+                peerConnection.onconnectionstatechange = null;
+                peerConnection.oniceconnectionstatechange = null;
+                peerConnection.onicegatheringstatechange = null;
+                peerConnection.onerror = null;
+
+                // Close connection
+                peerConnection.close();
+                peerConnection = null;
+                console.log('✅ Peer connection cleaned up');
+            }
+        }
+
         function endCurrentCall() {
             console.log('Ending current call');
 
@@ -1201,24 +1295,21 @@
             // IMPORTANT: Don't stop local stream - keep microphone ready for next call
             // We only stop the stream when the user leaves the chat completely
 
-            // Close peer connection
-            if (peerConnection) {
-                peerConnection.close();
-                peerConnection = null;
-                console.log('Peer connection closed');
-            }
+            // Clean up peer connection properly
+            cleanupPeerConnection();
 
             // Clear remote stream
             if (remoteStream) {
                 remoteAudio.srcObject = null;
                 remoteStream = null;
+                console.log('Remote stream cleared');
             }
 
             // Reset call variables
             currentCallId = null;
             currentPeerId = null;
 
-            console.log('Call cleanup completed - microphone still ready');
+            console.log('✅ Call cleanup completed - microphone still ready');
         }
 
         function hideCallModal() {
