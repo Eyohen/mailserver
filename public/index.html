@@ -51,12 +51,12 @@
                     </svg>
                 </div>
                 <h2 class="text-2xl font-bold text-gray-800 mb-2">Join Chat</h2>
-                <p class="text-gray-600">Enter your name to start chatting</p>
+                <p class="text-gray-600">Enter your name and allow microphone access for voice calls</p>
             </div>
             <form id="usernameForm">
-                <input type="text" id="usernameInput" placeholder="Your name..." 
+                <input type="text" id="usernameInput" placeholder="Your name..."
                        class="w-full px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-200 mb-4">
-                <button type="submit" 
+                <button type="submit"
                         class="w-full bg-gradient-to-r from-blue-500 to-purple-600 text-white py-3 rounded-xl font-semibold hover:from-blue-600 hover:to-purple-700 transition-all duration-200 transform hover:scale-[1.02]">
                     Start Chatting
                 </button>
@@ -215,9 +215,9 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"></path>
                         </svg>
                     </button>
-                    <input type="text" id="messageInput" placeholder="Type your message..." 
+                    <input type="text" id="messageInput" placeholder="Type your message..."
                            class="flex-1 px-3 lg:px-4 py-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all duration-200 text-sm lg:text-base">
-                    <button type="submit" 
+                    <button type="submit"
                             class="px-4 lg:px-6 py-3 bg-gradient-to-r from-blue-500 to-purple-600 text-white rounded-xl font-semibold hover:from-blue-600 hover:to-purple-700 transition-all duration-200 transform hover:scale-[1.02] flex items-center flex-shrink-0">
                         <svg class="w-4 h-4 lg:w-5 lg:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
@@ -282,7 +282,7 @@
         const userInitial = document.getElementById('userInitial');
         const typingIndicator = document.getElementById('typingIndicator');
         const typingText = document.getElementById('typingText');
-        
+
         // File upload elements
         const fileModal = document.getElementById('fileModal');
         const attachButton = document.getElementById('attachButton');
@@ -355,7 +355,7 @@
             }
         }
 
-        // Handle username submission
+        // Handle username submission - REQUEST MICROPHONE IMMEDIATELY
         usernameForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             console.log('Username form submitted');
@@ -485,7 +485,7 @@
 
                     if (response.ok) {
                         const fileData = await response.json();
-                        
+
                         socket.emit('send-file', {
                             fileName: fileData.originalName,
                             fileUrl: fileData.url,
@@ -515,6 +515,7 @@
             }
         });
 
+        // SIMPLIFIED ACCEPT CALL - NO MICROPHONE REQUEST
         acceptCall.addEventListener('click', () => {
             console.log('Accept call clicked');
 
@@ -709,11 +710,11 @@
             const isOwnMessage = data.userId === socket.id;
             const messageDiv = document.createElement('div');
             messageDiv.className = `flex ${isOwnMessage ? 'justify-end' : 'justify-start'} animate-fade-in`;
-            
+
             const time = new Date(data.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-            
+
             let messageContent = '';
-            
+
             if (data.type === 'file') {
                 const isImage = data.fileData.type.startsWith('image/');
                 if (isImage) {
@@ -740,7 +741,7 @@
             } else {
                 messageContent = `<div class="break-words text-sm lg:text-base">${escapeHtml(data.message)}</div>`;
             }
-            
+
             messageDiv.innerHTML = `
                 <div class="max-w-xs lg:max-w-md ${isOwnMessage ? 'order-1' : 'order-2'}">
                     <div class="${isOwnMessage ? 'bg-gradient-to-r from-blue-500 to-purple-600 text-white' : 'bg-white text-gray-800 border border-gray-200'} rounded-2xl px-3 lg:px-4 py-2 lg:py-3 shadow-sm">
@@ -755,7 +756,7 @@
                 </div>
                 ` : ''}
             `;
-            
+
             messagesContainer.appendChild(messageDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
@@ -763,15 +764,15 @@
         function addSystemMessage(message, type) {
             const messageDiv = document.createElement('div');
             messageDiv.className = 'flex justify-center animate-fade-in';
-            
+
             const bgColor = type === 'joined' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
-            
+
             messageDiv.innerHTML = `
                 <div class="px-4 py-2 rounded-full text-sm ${bgColor}">
                     ${escapeHtml(message)}
                 </div>
             `;
-            
+
             messagesContainer.appendChild(messageDiv);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
@@ -779,19 +780,19 @@
         function updateUsersList(users) {
             usersList.innerHTML = '';
             connectedUsers = users;
-            
+
             users.forEach(user => {
                 const isCurrentUser = user.id === socket.id;
                 const userDiv = document.createElement('div');
                 userDiv.className = 'flex items-center py-2 px-2 lg:px-3 rounded-lg hover:bg-gray-800 transition-colors duration-200';
-                
-                const callButtonHtml = !isCurrentUser ? 
+
+                const callButtonHtml = !isCurrentUser ?
                     `<button onclick="initiateCall('${user.id}')" class="ml-auto p-1 text-green-400 hover:text-green-300 transition-colors duration-200" title="Call ${user.username}">
                         <svg class="w-3 h-3 lg:w-4 lg:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path>
                         </svg>
                     </button>` : '';
-                
+
                 userDiv.innerHTML = `
                     <div class="w-6 h-6 lg:w-8 lg:h-8 bg-gradient-to-r from-green-400 to-blue-500 rounded-full flex items-center justify-center mr-2 lg:mr-3">
                         <span class="text-white text-xs lg:text-sm font-semibold">${user.username.charAt(0).toUpperCase()}</span>
@@ -823,7 +824,7 @@
                 .replace(/'/g, "&#039;");
         }
 
-        // Call initiation functions
+        // SIMPLIFIED CALL INITIATION - NO MICROPHONE REQUEST
         function initiateCall(targetUserId) {
             console.log('Initiating call to:', targetUserId);
 
@@ -857,7 +858,7 @@
                 alert('No other users available to call');
                 return;
             }
-            
+
             initiateCall(otherUsers[0].id);
         }
 
@@ -1160,15 +1161,8 @@
             // Set state to idle
             setCallState('idle');
 
-            // Stop local media stream
-            if (localStream) {
-                localStream.getTracks().forEach(track => {
-                    track.stop();
-                    console.log('Stopped local track:', track.kind);
-                });
-                localStream = null;
-                localAudio.srcObject = null;
-            }
+            // IMPORTANT: Don't stop local stream - keep microphone ready for next call
+            // We only stop the stream when the user leaves the chat completely
 
             // Close peer connection
             if (peerConnection) {
@@ -1187,7 +1181,7 @@
             currentCallId = null;
             currentPeerId = null;
 
-            console.log('Call cleanup completed');
+            console.log('Call cleanup completed - microphone still ready');
         }
 
         function hideCallModal() {
@@ -1196,6 +1190,15 @@
 
         // Focus username input on load
         usernameInput.focus();
+
+        // Clean up microphone when leaving the page
+        window.addEventListener('beforeunload', () => {
+            if (localStream) {
+                localStream.getTracks().forEach(track => {
+                    track.stop();
+                });
+            }
+        });
     </script>
 </body>
 </html>
