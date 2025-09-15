@@ -591,10 +591,10 @@ io.on('connection', (socket) => {
         
         // Small delay to ensure both clients are ready
         setTimeout(() => {
-          // Start WebRTC signaling - caller initiates
-          io.to(peerId).emit('start-call', { peerId: socket.id });
-          // Receiver waits for offer
-          socket.emit('start-call', { peerId: peerId });
+          // The caller (original initiator) should create the offer
+          io.to(peerId).emit('start-webrtc-caller', { peerId: socket.id });
+          // The receiver waits for the offer
+          socket.emit('start-webrtc-receiver', { peerId: peerId });
         }, 500);
       } else {
         console.log('Call rejected');
