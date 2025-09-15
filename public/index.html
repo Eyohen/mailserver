@@ -150,11 +150,14 @@
                     </h1>
                     <p class="text-gray-400 text-xs lg:text-sm mt-1">Real-time messaging</p>
                 </div>
-                <button id="callButton" class="p-2 bg-green-500 hover:bg-green-600 rounded-full transition-colors duration-200" title="Make a call">
-                    <svg class="w-4 h-4 lg:w-5 lg:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path>
-                    </svg>
-                </button>
+                <div class="flex items-center space-x-2">
+                    <div id="micStatus" class="w-2 h-2 bg-red-500 rounded-full" title="Microphone status"></div>
+                    <button id="callButton" class="p-2 bg-green-500 hover:bg-green-600 rounded-full transition-colors duration-200" title="Make a call">
+                        <svg class="w-4 h-4 lg:w-5 lg:h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
 
             <!-- Online Users -->
@@ -304,6 +307,7 @@
         const remoteAudio = document.getElementById('remoteAudio');
         const incomingRingtone = document.getElementById('incomingRingtone');
         const outgoingRingtone = document.getElementById('outgoingRingtone');
+        const micStatus = document.getElementById('micStatus');
 
         // WebRTC configuration
         const rtcConfiguration = {
@@ -352,24 +356,72 @@
         }
 
         // Handle username submission
-        usernameForm.addEventListener('submit', (e) => {
+        usernameForm.addEventListener('submit', async (e) => {
             e.preventDefault();
             console.log('Username form submitted');
             const username = usernameInput.value.trim();
             console.log('Username entered:', username);
-            
+
             if (username) {
-                currentUser = username;
-                currentUsername.textContent = username;
-                userInitial.textContent = username.charAt(0).toUpperCase();
-                
-                console.log('Hiding username modal, showing chat');
-                usernameModal.classList.add('hidden');
-                chatContainer.classList.remove('hidden');
-                
-                console.log('Emitting user-joined event');
-                socket.emit('user-joined', username);
-                messageInput.focus();
+                try {
+                    // Request microphone permission immediately when joining
+                    console.log('Requesting microphone permission...');
+                    localStream = await navigator.mediaDevices.getUserMedia({
+                        audio: {
+                            echoCancellation: true,
+                            noiseSuppression: true,
+                            autoGainControl: true
+                        }
+                    });
+                    localAudio.srcObject = localStream;
+                    localAudio.muted = true; // Always mute local audio to prevent feedback
+
+                    // Update microphone status indicator
+                    micStatus.className = 'w-2 h-2 bg-green-500 rounded-full animate-pulse';
+                    micStatus.title = 'Microphone ready';
+
+                    console.log('✅ Microphone access granted');
+
+                    // Set user info and show chat
+                    currentUser = username;
+                    currentUsername.textContent = username;
+                    userInitial.textContent = username.charAt(0).toUpperCase();
+
+                    console.log('Hiding username modal, showing chat');
+                    usernameModal.classList.add('hidden');
+                    chatContainer.classList.remove('hidden');
+
+                    console.log('Emitting user-joined event');
+                    socket.emit('user-joined', username);
+                    messageInput.focus();
+
+                } catch (error) {
+                    console.error('Microphone permission denied:', error);
+
+                    let errorMessage = 'Microphone access is required for voice calls. ';
+                    if (error.name === 'NotAllowedError') {
+                        errorMessage += 'Please allow microphone access and refresh the page.';
+                    } else {
+                        errorMessage += 'Please check your microphone settings and refresh the page.';
+                    }
+
+                    alert(errorMessage);
+                    // Allow chat without microphone but disable call features
+                    currentUser = username;
+                    currentUsername.textContent = username;
+                    userInitial.textContent = username.charAt(0).toUpperCase();
+
+                    usernameModal.classList.add('hidden');
+                    chatContainer.classList.remove('hidden');
+                    socket.emit('user-joined', username);
+                    messageInput.focus();
+
+                    // Disable call button and update mic status
+                    callButton.disabled = true;
+                    callButton.title = 'Microphone access required for calls';
+                    micStatus.className = 'w-2 h-2 bg-red-500 rounded-full';
+                    micStatus.title = 'Microphone not available';
+                }
             } else {
                 console.log('No username entered');
                 alert('Please enter a username');
@@ -463,7 +515,7 @@
             }
         });
 
-        acceptCall.addEventListener('click', async () => {
+        acceptCall.addEventListener('click', () => {
             console.log('Accept call clicked');
 
             if (!currentCallId || callState !== 'ringing') {
@@ -471,43 +523,26 @@
                 return;
             }
 
-            try {
-                stopRingtones();
-                setCallState('connecting');
-
-                // Get microphone access before accepting
-                if (!localStream) {
-                    console.log('Getting microphone access for call accept...');
-                    callDescription.textContent = 'Accessing microphone...';
-
-                    localStream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true
-                        }
-                    });
-
-                    localAudio.srcObject = localStream;
-                    console.log('Microphone access granted');
-                }
-
-                socket.emit('call-response', { callId: currentCallId, accepted: true });
-
-                // Update UI
-                callTitle.textContent = 'Connecting...';
-                callDescription.textContent = 'Setting up call...';
-                callButtons.classList.add('hidden');
-                callInProgress.classList.remove('hidden');
-
-            } catch (error) {
-                console.error('Error accepting call:', error);
-                alert('Could not access microphone. Please check permissions and try again.');
-
+            if (!localStream) {
+                alert('Microphone not available. Please refresh the page and allow microphone access.');
                 socket.emit('call-response', { callId: currentCallId, accepted: false });
                 endCurrentCall();
                 hideCallModal();
+                return;
             }
+
+            console.log('✅ Microphone ready, accepting call...');
+            stopRingtones();
+            setCallState('connecting');
+
+            // Accept the call
+            socket.emit('call-response', { callId: currentCallId, accepted: true });
+
+            // Update UI
+            callTitle.textContent = 'Connecting...';
+            callDescription.textContent = 'Setting up call...';
+            callButtons.classList.add('hidden');
+            callInProgress.classList.remove('hidden');
         });
 
         rejectCall.addEventListener('click', () => {
@@ -789,7 +824,7 @@
         }
 
         // Call initiation functions
-        async function initiateCall(targetUserId) {
+        function initiateCall(targetUserId) {
             console.log('Initiating call to:', targetUserId);
 
             if (callState !== 'idle') {
@@ -797,47 +832,23 @@
                 return;
             }
 
-            try {
-                setCallState('connecting');
-
-                callTitle.textContent = 'Accessing Microphone...';
-                callDescription.textContent = 'Please allow microphone access';
-                callButtons.classList.add('hidden');
-                callInProgress.classList.remove('hidden');
-                callModal.classList.remove('hidden');
-
-                // Get microphone access with enhanced audio settings
-                localStream = await navigator.mediaDevices.getUserMedia({
-                    audio: {
-                        echoCancellation: true,
-                        noiseSuppression: true,
-                        autoGainControl: true,
-                        channelCount: 1,
-                        sampleRate: 48000
-                    }
-                });
-
-                localAudio.srcObject = localStream;
-                console.log('Microphone access granted, initiating call');
-
-                socket.emit('initiate-call', targetUserId);
-
-            } catch (error) {
-                console.error('Error accessing microphone:', error);
-
-                let errorMessage = 'Could not access microphone. ';
-                if (error.name === 'NotAllowedError') {
-                    errorMessage += 'Please allow microphone access and try again.';
-                } else if (error.name === 'NotFoundError') {
-                    errorMessage += 'No microphone found. Please connect a microphone and try again.';
-                } else {
-                    errorMessage += 'Please check your microphone settings and try again.';
-                }
-
-                alert(errorMessage);
-                endCurrentCall();
-                hideCallModal();
+            if (!localStream) {
+                alert('Microphone not available. Please refresh the page and allow microphone access.');
+                return;
             }
+
+            console.log('✅ Microphone ready, starting call...');
+            setCallState('connecting');
+
+            // Show call UI immediately
+            callTitle.textContent = 'Calling...';
+            callDescription.textContent = 'Waiting for response...';
+            callButtons.classList.add('hidden');
+            callInProgress.classList.remove('hidden');
+            callModal.classList.remove('hidden');
+
+            // Emit call initiation
+            socket.emit('initiate-call', targetUserId);
         }
 
         function showUserSelectionForCall() {
@@ -852,43 +863,41 @@
 
         // Call functions with proper WebRTC flow
         async function startWebRTCCaller(peerId) {
-            console.log('Setting up WebRTC as caller for peer:', peerId);
+            console.log('🔄 Setting up WebRTC as caller for peer:', peerId);
 
             try {
+                // Clean up existing connection
                 if (peerConnection) {
                     console.log('Closing existing peer connection');
                     peerConnection.close();
                 }
 
+                // Create new peer connection
                 peerConnection = new RTCPeerConnection(rtcConfiguration);
                 setupPeerConnectionHandlers(peerId);
 
                 if (!localStream) {
-                    console.log('Getting microphone access for caller...');
-                    localStream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true
-                        }
-                    });
-                    localAudio.srcObject = localStream;
+                    console.error('❌ No local stream available for caller');
+                    throw new Error('Microphone not available');
                 }
 
-                // Add all tracks to peer connection
+                console.log('✅ Local stream available, adding tracks...');
+
+                // Add all local tracks to peer connection
                 localStream.getTracks().forEach(track => {
                     peerConnection.addTrack(track, localStream);
-                    console.log('Caller added local track:', track.kind);
+                    console.log('✅ Caller added local track:', track.kind);
                 });
 
-                // Create offer with proper constraints
+                // Create offer
+                console.log('📞 Creating WebRTC offer...');
                 const offer = await peerConnection.createOffer({
                     offerToReceiveAudio: true,
                     voiceActivityDetection: true
                 });
 
                 await peerConnection.setLocalDescription(offer);
-                console.log('Caller created and set local description (offer)');
+                console.log('✅ Caller set local description (offer)');
 
                 // Send offer to peer
                 socket.emit('webrtc-offer', {
@@ -896,10 +905,10 @@
                     targetId: peerId
                 });
 
-                console.log('Offer sent to peer:', peerId);
+                console.log('📤 Offer sent to peer:', peerId);
 
             } catch (error) {
-                console.error('Error in startWebRTCCaller:', error);
+                console.error('❌ Error in startWebRTCCaller:', error);
                 callDescription.textContent = 'Failed to start call';
                 setTimeout(() => {
                     endCurrentCall();
@@ -909,39 +918,29 @@
             }
         }
 
-        async function setupWebRTCReceiver() {
-            console.log('Setting up WebRTC as receiver');
+        function setupWebRTCReceiver() {
+            console.log('📱 Setting up WebRTC as receiver');
 
-            try {
-                if (!localStream) {
-                    console.log('Getting microphone access for receiver...');
-                    localStream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true
-                        }
-                    });
-                    localAudio.srcObject = localStream;
-                }
-
-                console.log('Receiver ready, waiting for offer...');
-
-            } catch (error) {
-                console.error('Error setting up receiver:', error);
-                callDescription.textContent = 'Failed to setup call';
+            if (!localStream) {
+                console.error('❌ No local stream available for receiver');
+                callDescription.textContent = 'Microphone not available';
                 setTimeout(() => {
                     endCurrentCall();
                     hideCallModal();
-                    alert('Failed to setup call: ' + error.message);
+                    alert('Microphone not available. Please refresh and allow access.');
                 }, 2000);
+                return;
             }
+
+            console.log('✅ Receiver ready with microphone, waiting for offer...');
         }
 
         function setupPeerConnectionHandlers(peerId) {
             // Handle incoming tracks (remote audio)
             peerConnection.ontrack = (event) => {
-                console.log('Received remote track:', event.streams[0]);
+                console.log('🎵 Received remote audio track from peer');
+                console.log('Remote stream details:', event.streams[0]);
+
                 remoteStream = event.streams[0];
                 remoteAudio.srcObject = remoteStream;
 
@@ -950,22 +949,34 @@
                 callTitle.textContent = 'Call Connected';
                 callDescription.textContent = 'You can now talk!';
 
-                // Handle audio playback
-                remoteAudio.play().then(() => {
-                    console.log('Remote audio playing successfully');
-                }).catch(e => {
-                    console.log('Auto-play prevented, user interaction needed');
-                    callDescription.textContent = 'Call connected - click anywhere to hear audio';
+                // Ensure remote audio plays - critical for hearing the other person
+                remoteAudio.volume = 1.0; // Max volume
+                remoteAudio.autoplay = true;
 
-                    // Auto-enable audio on next user interaction
-                    const enableAudio = () => {
-                        remoteAudio.play().then(() => {
-                            callDescription.textContent = 'You can now talk!';
-                            document.removeEventListener('click', enableAudio);
-                        });
-                    };
-                    document.addEventListener('click', enableAudio, { once: true });
-                });
+                // Force audio to play
+                const playRemoteAudio = () => {
+                    remoteAudio.play().then(() => {
+                        console.log('✅ Remote audio playing successfully - you can now hear the other person!');
+                    }).catch(e => {
+                        console.log('⚠️ Auto-play prevented - user interaction required');
+                        callDescription.textContent = 'Call connected - click anywhere to enable audio';
+
+                        // Add one-time click handler to enable audio
+                        const enableAudio = () => {
+                            remoteAudio.play().then(() => {
+                                console.log('✅ Audio enabled - you can now hear the other person!');
+                                callDescription.textContent = 'You can now talk!';
+                            }).catch(err => {
+                                console.error('Failed to enable audio:', err);
+                            });
+                        };
+                        document.addEventListener('click', enableAudio, { once: true });
+                    });
+                };
+
+                // Try to play immediately and also when metadata loads
+                playRemoteAudio();
+                remoteAudio.addEventListener('loadedmetadata', playRemoteAudio, { once: true });
             };
 
             // Handle ICE candidates
@@ -1047,7 +1058,7 @@
         }
 
         async function handleOffer(offer, senderId) {
-            console.log('Handling WebRTC offer from:', senderId);
+            console.log('📥 Handling WebRTC offer from:', senderId);
 
             try {
                 // Create new peer connection if needed
@@ -1056,40 +1067,36 @@
                     setupPeerConnectionHandlers(senderId);
                 }
 
-                // Ensure we have local stream
+                // Verify we have local stream
                 if (!localStream) {
-                    console.log('Getting microphone access to handle offer...');
-                    localStream = await navigator.mediaDevices.getUserMedia({
-                        audio: {
-                            echoCancellation: true,
-                            noiseSuppression: true,
-                            autoGainControl: true
-                        }
-                    });
-                    localAudio.srcObject = localStream;
+                    console.error('❌ No local stream available to handle offer');
+                    throw new Error('Microphone not available');
                 }
+
+                console.log('✅ Local stream available, adding tracks to peer connection...');
 
                 // Add local tracks to peer connection
                 localStream.getTracks().forEach(track => {
                     const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === track.kind);
                     if (!sender) {
                         peerConnection.addTrack(track, localStream);
-                        console.log('Receiver added local track:', track.kind);
+                        console.log('✅ Receiver added local track:', track.kind);
                     }
                 });
 
                 // Set remote description (the offer)
                 await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
-                console.log('Set remote description (offer)');
+                console.log('✅ Set remote description (offer)');
 
                 // Create and set local description (the answer)
+                console.log('📞 Creating WebRTC answer...');
                 const answer = await peerConnection.createAnswer({
                     offerToReceiveAudio: true,
                     voiceActivityDetection: true
                 });
 
                 await peerConnection.setLocalDescription(answer);
-                console.log('Created and set local description (answer)');
+                console.log('✅ Created and set local description (answer)');
 
                 // Send answer back to caller
                 socket.emit('webrtc-answer', {
@@ -1097,10 +1104,10 @@
                     targetId: senderId
                 });
 
-                console.log('Answer sent to:', senderId);
+                console.log('📤 Answer sent to:', senderId);
 
             } catch (error) {
-                console.error('Error handling offer:', error);
+                console.error('❌ Error handling offer:', error);
                 callDescription.textContent = 'Failed to process call';
                 setTimeout(() => {
                     endCurrentCall();
