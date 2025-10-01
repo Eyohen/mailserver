@@ -1,6 +1,20 @@
 const db = require('../models');
 const { EmailTransaction, Merchant } = db;
 const { Op } = require('sequelize');
+const nodemailer = require('nodemailer');
+
+
+const createTransporter = () => {
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: process.env.SMTP_PORT,
+    secure: false,
+    auth: {
+      user: process.env.SMTP_USER,
+      pass: process.env.SMTP_PASS
+    }
+  });
+};
 
 const sendEmail = async (req, res) => {
   try {
@@ -41,7 +55,19 @@ const sendEmail = async (req, res) => {
     });
 
     try {
-      // TODO: Integrate actual email service here (SendGrid, AWS SES, etc.)
+  // ACTUAL EMAIL SENDING
+      const transporter = createTransporter();
+      await transporter.sendMail({
+        from: {
+          name: senderName,
+          address: process.env.SMTP_USER
+        },
+        to: recipientEmail,
+        subject: subject,
+        text: content,
+        html: htmlContent || content
+      });
+
       
       await emailTransaction.update({
         status: 'sent',
