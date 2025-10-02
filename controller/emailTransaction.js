@@ -1,20 +1,7 @@
 const db = require('../models');
 const { EmailTransaction, Merchant } = db;
 const { Op } = require('sequelize');
-const nodemailer = require('nodemailer');
 
-
-const createTransporter = () => {
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: process.env.SMTP_PORT,
-    secure: false,
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS
-    }
-  });
-};
 
 const sendEmail = async (req, res) => {
   try {
@@ -36,7 +23,8 @@ const sendEmail = async (req, res) => {
       });
     }
 
-    const senderEmail = req.merchant.email;
+    const senderEmail = process.env.RESEND_FROM_EMAIL;
+
     const senderName = req.merchant.businessName || `${req.merchant.firstName} ${req.merchant.lastName}`;
 
     const emailTransaction = await EmailTransaction.create({
@@ -55,23 +43,29 @@ const sendEmail = async (req, res) => {
     });
 
     try {
-  // ACTUAL EMAIL SENDING
-      const transporter = createTransporter();
-      await transporter.sendMail({
-        from: {
-          name: senderName,
-          address: process.env.SMTP_USER
+      // ACTUAL EMAIL SENDING
+      const response = await axios.post(
+        'https://api.resend.com/emails',
+        {
+          from: `${senderName} <${senderEmail}>`,
+          to: [recipientEmail],
+          subject: subject,
+          text: content,
+          html: htmlContent || content
         },
-        to: recipientEmail,
-        subject: subject,
-        text: content,
-        html: htmlContent || content
-      });
+        {
+          headers: {
+            'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+            'Content-Type': 'application/json'
+          }
+        }
+      );
 
-      
+
       await emailTransaction.update({
         status: 'sent',
         sentAt: new Date(),
+        externalId: response.data.id
       });
 
       return res.status(200).json({
@@ -80,15 +74,17 @@ const sendEmail = async (req, res) => {
         msg: 'Email sent successfully',
       });
     } catch (emailError) {
+      console.error('Resend API error:', emailError.response?.data || emailError.message);
+      
       await emailTransaction.update({
         status: 'failed',
-        errorMessage: emailError.message,
+        errorMessage: emailError.response?.data?.message || emailError.message,
       });
 
       return res.status(500).json({
         success: false,
         msg: 'Failed to send email',
-        error: emailError.message,
+        error: emailError.response?.data?.message || emailError.message,
       });
     }
   } catch (error) {
