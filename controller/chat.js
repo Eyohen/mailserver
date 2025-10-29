@@ -181,10 +181,14 @@ const deleteChat = async (req, res) => {
 const sendMessage = async (req, res) => {
   try {
     const { chatId } = req.params;
-    const { content, messageType, fileData } = req.body;
+    const { content, messageType, fileData, senderType: requestSenderType, senderName: requestSenderName } = req.body;
     const merchantId = req.merchant.id;
     const senderId = req.user?.id || null;
-    const senderName = req.user ? `${req.user.fname} ${req.user.lname}` : 'Agent';
+
+    // Use senderType and senderName from request body if provided (for customer messages)
+    // Otherwise default to agent
+    const senderType = requestSenderType || 'agent';
+    const senderName = requestSenderName || (req.user ? `${req.user.fname} ${req.user.lname}` : 'Agent');
 
     const chat = await Chat.findOne({
       where: { id: chatId, merchantId },
@@ -197,7 +201,7 @@ const sendMessage = async (req, res) => {
     const message = await Message.create({
       chatId,
       senderId,
-      senderType: 'agent',
+      senderType,
       senderName,
       messageType: messageType || 'text',
       content,

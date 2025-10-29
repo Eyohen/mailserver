@@ -1,3 +1,4 @@
+const axios = require('axios');
 const db = require('../models');
 const { EmailTransaction, Merchant } = db;
 const { Op } = require('sequelize');

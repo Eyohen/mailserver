@@ -24,6 +24,7 @@ const merchantRoutes = require('./route/merchant');
 const chatRoutes = require('./route/chat');
 const emailRoutes = require('./route/emailTransaction');
 const notificationRoutes = require('./route/notification');
+const externalChatRoutes = require('./route/externalChat');
 
 // Middleware
 app.use(helmet());
@@ -49,19 +50,86 @@ app.use('/api/merchant', merchantRoutes);
 app.use('/api', chatRoutes);
 app.use('/api', emailRoutes);
 app.use('/api', notificationRoutes);
+app.use('/api/external-chat', externalChatRoutes);
 
 // Socket.IO for real-time features
 const connectedUsers = new Map();
 const activeSupportChats = new Map();
+const externalChatRooms = new Map(); // For external chat rooms
 
 io.on('connection', (socket) => {
   console.log('Client connected:', socket.id);
 
   socket.on('authenticate', (data) => {
-    const { merchantId, userType } = data;
-    connectedUsers.set(socket.id, { merchantId, userType });
+    const { merchantId, userType, userId, userName } = data;
+    connectedUsers.set(socket.id, { merchantId, userType, userId, userName });
     socket.join(`merchant-${merchantId}`);
     console.log(`${userType} ${merchantId} authenticated on socket ${socket.id}`);
+  });
+
+  // External chat room events
+  socket.on('join-room', (data) => {
+    const { roomId, userId, userName } = data;
+    socket.join(`room-${roomId}`);
+
+    if (!externalChatRooms.has(roomId)) {
+      externalChatRooms.set(roomId, new Map());
+    }
+    externalChatRooms.get(roomId).set(socket.id, { userId, userName });
+
+    console.log(`User ${userName} joined room ${roomId}`);
+
+    // Notify others in the room
+    socket.to(`room-${roomId}`).emit('user-joined-room', {
+      roomId,
+      userId,
+      userName,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  socket.on('leave-room', (data) => {
+    const { roomId, userId, userName } = data;
+    socket.leave(`room-${roomId}`);
+
+    if (externalChatRooms.has(roomId)) {
+      externalChatRooms.get(roomId).delete(socket.id);
+      if (externalChatRooms.get(roomId).size === 0) {
+        externalChatRooms.delete(roomId);
+      }
+    }
+
+    console.log(`User ${userName} left room ${roomId}`);
+
+    // Notify others in the room
+    socket.to(`room-${roomId}`).emit('user-left-room', {
+      roomId,
+      userId,
+      userName,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  socket.on('send-room-message', (data) => {
+    const { roomId, message } = data;
+    console.log(`Message in room ${roomId}:`, message);
+
+    // Broadcast to all users in the room including sender
+    io.to(`room-${roomId}`).emit('receive-room-message', {
+      roomId,
+      message,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  socket.on('typing-in-room', (data) => {
+    const { roomId, userId, userName, isTyping } = data;
+    socket.to(`room-${roomId}`).emit('user-typing-in-room', {
+      roomId,
+      userId,
+      userName,
+      isTyping,
+    });
   });
 
   socket.on('join-chat', (chatId) => {
