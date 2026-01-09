@@ -112,6 +112,18 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "merchantId",
         as: "notifications",
       });
+
+      // A merchant has many user presences (for their app users)
+      Merchant.hasMany(models.UserPresence, {
+        foreignKey: "merchantId",
+        as: "userPresences",
+      });
+
+      // A merchant has many webhooks
+      Merchant.hasMany(models.Webhook, {
+        foreignKey: "merchantId",
+        as: "webhooks",
+      });
     }
   }
 

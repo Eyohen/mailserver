@@ -10,6 +10,10 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: "roomId",
         as: "room",
       });
+      ChatMessage.hasMany(models.MessageReaction, {
+        foreignKey: "messageId",
+        as: "reactions",
+      });
     }
   }
 
@@ -55,6 +59,14 @@ module.exports = (sequelize, DataTypes) => {
       metadata: {
         type: DataTypes.JSON,
         defaultValue: {},
+      },
+      editedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      isDeleted: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
       },
     },
     {

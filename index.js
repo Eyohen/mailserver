@@ -132,6 +132,76 @@ io.on('connection', (socket) => {
     });
   });
 
+  // Message updated event
+  socket.on('message-updated', (data) => {
+    const { roomId, messageId, content, editedAt, userId } = data;
+    io.to(`room-${roomId}`).emit('message-updated', {
+      roomId,
+      messageId,
+      content,
+      editedAt,
+      updatedBy: userId,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // Message deleted event
+  socket.on('message-deleted', (data) => {
+    const { roomId, messageId, userId } = data;
+    io.to(`room-${roomId}`).emit('message-deleted', {
+      roomId,
+      messageId,
+      deletedBy: userId,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // Reaction added event
+  socket.on('reaction-added', (data) => {
+    const { roomId, messageId, userId, userName, emoji } = data;
+    io.to(`room-${roomId}`).emit('reaction-added', {
+      roomId,
+      messageId,
+      userId,
+      userName,
+      emoji,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // Reaction removed event
+  socket.on('reaction-removed', (data) => {
+    const { roomId, messageId, userId, emoji } = data;
+    io.to(`room-${roomId}`).emit('reaction-removed', {
+      roomId,
+      messageId,
+      userId,
+      emoji,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // Messages read event
+  socket.on('messages-read', (data) => {
+    const { roomId, userId, lastReadAt } = data;
+    socket.to(`room-${roomId}`).emit('messages-read', {
+      roomId,
+      userId,
+      lastReadAt,
+      timestamp: new Date().toISOString(),
+    });
+  });
+
+  // Presence update event
+  socket.on('presence-update', (data) => {
+    const { merchantId, userId, status } = data;
+    io.to(`merchant-${merchantId}`).emit('presence-updated', {
+      userId,
+      status,
+      lastSeenAt: new Date().toISOString(),
+    });
+  });
+
   socket.on('join-chat', (chatId) => {
     socket.join(`chat-${chatId}`);
     if (!activeSupportChats.has(chatId)) {
