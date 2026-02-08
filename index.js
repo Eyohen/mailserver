@@ -11,7 +11,7 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+    origin: [process.env.FRONTEND_URL || 'http://localhost:5173', 'http://localhost:3002'],
     methods: ['GET', 'POST'],
   },
 });
@@ -25,6 +25,7 @@ const chatRoutes = require('./route/chat');
 const emailRoutes = require('./route/emailTransaction');
 const notificationRoutes = require('./route/notification');
 const externalChatRoutes = require('./route/externalChat');
+const scrabbleRoutes = require('./route/scrabble');
 
 // Middleware
 app.use(helmet());
@@ -51,6 +52,10 @@ app.use('/api', chatRoutes);
 app.use('/api', emailRoutes);
 app.use('/api', notificationRoutes);
 app.use('/api/external-chat', externalChatRoutes);
+app.use('/api/scrabble', scrabbleRoutes);
+
+// Serve scrabble HTML
+app.use('/scrabble', express.static(require('path').join(__dirname, 'scrabble-game')));
 
 // Socket.IO for real-time features
 const connectedUsers = new Map();
@@ -249,6 +254,71 @@ io.on('connection', (socket) => {
     io.to(`merchant-${merchantId}`).emit('new-notification', notification);
   });
 
+  // --- Scrabble Game Events ---
+  const scrabbleController = require('./controller/scrabble');
+
+  socket.on('scrabble:join', (data) => {
+    const { gameCode, playerName } = data;
+    socket.join(`scrabble-${gameCode}`);
+    socket.scrabbleGame = gameCode;
+    socket.scrabblePlayer = playerName;
+    console.log(`${playerName} joined scrabble game ${gameCode}`);
+    socket.to(`scrabble-${gameCode}`).emit('scrabble:player-joined', { playerName });
+  });
+
+  socket.on('scrabble:submit-word', async (data) => {
+    const { gameCode, playerName, placements } = data;
+    const result = await scrabbleController.submitWord(gameCode, playerName, placements);
+    if (result.error) {
+      socket.emit('scrabble:error', { message: result.error });
+    } else {
+      // Fetch updated state and send to each player
+      const game = await db.ScrabbleGame.findOne({ where: { gameCode } });
+      if (game) {
+        // Send personalized state to each player in the room
+        const sockets = await io.in(`scrabble-${gameCode}`).fetchSockets();
+        for (const s of sockets) {
+          const state = scrabbleController.buildPlayerState(game, s.scrabblePlayer);
+          s.emit('scrabble:state-update', {
+            state,
+            event: 'word-submitted',
+            message: `${playerName} scored ${result.totalScore} points! (${result.words})`,
+          });
+        }
+      }
+    }
+  });
+
+  socket.on('scrabble:pass-turn', async (data) => {
+    const { gameCode, playerName } = data;
+    const result = await scrabbleController.passTurn(gameCode, playerName);
+    if (result.error) {
+      socket.emit('scrabble:error', { message: result.error });
+    } else {
+      const game = await db.ScrabbleGame.findOne({ where: { gameCode } });
+      if (game) {
+        const sockets = await io.in(`scrabble-${gameCode}`).fetchSockets();
+        for (const s of sockets) {
+          const state = scrabbleController.buildPlayerState(game, s.scrabblePlayer);
+          s.emit('scrabble:state-update', {
+            state,
+            event: 'turn-passed',
+            message: `${playerName} passed their turn.`,
+          });
+        }
+      }
+    }
+  });
+
+  socket.on('scrabble:request-state', async (data) => {
+    const { gameCode, playerName } = data;
+    const game = await db.ScrabbleGame.findOne({ where: { gameCode } });
+    if (game) {
+      const state = scrabbleController.buildPlayerState(game, playerName);
+      socket.emit('scrabble:state-update', { state, event: 'refresh' });
+    }
+  });
+
   socket.on('disconnect', () => {
     const userData = connectedUsers.get(socket.id);
     if (userData) {
@@ -289,7 +359,7 @@ app.use((req, res) => {
 });
 
 // Database sync and server start
-const PORT = process.env.PORT || 3001;
+const PORT = process.env.PORT || 3002;
 
 const startServer = async () => {
   try {

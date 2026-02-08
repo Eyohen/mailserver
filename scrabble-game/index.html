@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Scrabble - Multiplayer</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; background: #1a1a2e; color: #eee; min-height: 100vh; display: flex; flex-direction: column; align-items: center; padding: 16px; }
+  h1 { font-size: 28px; margin-bottom: 8px; color: #e2b04a; letter-spacing: 4px; }
+
+  /* --- Lobby --- */
+  .lobby { background: #16213e; padding: 32px; border-radius: 12px; max-width: 400px; width: 100%; margin-top: 40px; }
+  .lobby h2 { color: #e2b04a; margin-bottom: 16px; text-align: center; }
+  .lobby input, .lobby button { display: block; width: 100%; padding: 12px; margin-bottom: 12px; border: none; border-radius: 6px; font-size: 15px; }
+  .lobby input { background: #0d0d1a; color: #eee; border: 1px solid #333; }
+  .lobby input:focus { outline: 2px solid #e2b04a; }
+  .lobby .btn-create { background: #2d6a4f; color: #fff; font-weight: bold; cursor: pointer; }
+  .lobby .btn-create:hover { background: #3a8963; }
+  .lobby .btn-join { background: #7b2d8b; color: #fff; font-weight: bold; cursor: pointer; }
+  .lobby .btn-join:hover { background: #9a3daa; }
+  .lobby .or { text-align: center; color: #666; margin: 8px 0; font-size: 13px; }
+  .lobby .status { text-align: center; color: #e2b04a; margin-top: 8px; font-size: 13px; min-height: 20px; }
+  .lobby .waiting { text-align: center; color: #aaa; margin-top: 12px; font-size: 14px; }
+  .lobby .game-code-display { text-align: center; font-size: 28px; letter-spacing: 6px; color: #e2b04a; font-weight: bold; margin: 12px 0; }
+
+  /* --- Game --- */
+  .game-container { display: none; width: 100%; max-width: 900px; }
+  .turn-banner { font-size: 18px; margin-bottom: 12px; padding: 6px 24px; border-radius: 6px; font-weight: bold; text-align: center; }
+  .turn-mine { background: #2d6a4f; }
+  .turn-theirs { background: #555; }
+  .turn-over { background: #e2b04a; color: #1a1a2e; }
+
+  .scores { display: flex; gap: 20px; margin-bottom: 12px; font-size: 15px; justify-content: center; flex-wrap: wrap; }
+  .scores .player { padding: 8px 18px; border-radius: 8px; }
+  .scores .player.active { outline: 3px solid #e2b04a; }
+  .score-p1 { background: #2d6a4f; }
+  .score-p2 { background: #7b2d8b; }
+
+  .board-wrapper { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; justify-content: center; }
+  .board { display: grid; grid-template-columns: repeat(15, 34px); grid-template-rows: repeat(15, 34px); gap: 2px; background: #0d0d1a; padding: 4px; border-radius: 6px; border: 2px solid #333; }
+  .cell {
+    width: 34px; height: 34px; display: flex; align-items: center; justify-content: center;
+    font-size: 9px; font-weight: bold; text-transform: uppercase; cursor: pointer;
+    border-radius: 3px; position: relative; user-select: none; text-align: center; line-height: 1.1;
+  }
+  .cell.normal { background: #c8b89a; color: #665; }
+  .cell.tw { background: #e04040; color: #fff; }
+  .cell.dw { background: #e8a0a0; color: #933; }
+  .cell.tl { background: #2089d0; color: #fff; }
+  .cell.dl { background: #88c8e8; color: #346; }
+  .cell.center { background: #e8a0a0; color: #933; }
+  .cell.has-tile {
+    background: #f5e6c8 !important; color: #222 !important;
+    font-size: 17px; font-weight: bold; box-shadow: 1px 1px 3px rgba(0,0,0,0.5); cursor: default;
+  }
+  .cell.has-tile .points { position: absolute; bottom: 1px; right: 3px; font-size: 7px; color: #666; }
+  .cell.pending-tile {
+    background: #ffe066 !important; color: #222 !important;
+    font-size: 17px; font-weight: bold; box-shadow: 1px 1px 3px rgba(0,0,0,0.5), 0 0 6px #e2b04a;
+  }
+  .cell.pending-tile .points { position: absolute; bottom: 1px; right: 3px; font-size: 7px; color: #666; }
+
+  .sidebar { display: flex; flex-direction: column; gap: 14px; min-width: 200px; }
+  .rack-section { background: #16213e; padding: 12px; border-radius: 8px; }
+  .rack-section h3 { margin-bottom: 8px; font-size: 14px; }
+  .rack { display: flex; gap: 4px; flex-wrap: wrap; }
+  .tile {
+    width: 38px; height: 38px; background: #f5e6c8; color: #222; display: flex;
+    align-items: center; justify-content: center; font-size: 18px; font-weight: bold;
+    border-radius: 4px; cursor: pointer; position: relative;
+    box-shadow: 1px 2px 4px rgba(0,0,0,0.4); user-select: none;
+  }
+  .tile:hover { transform: scale(1.1); }
+  .tile.selected { outline: 3px solid #e2b04a; transform: scale(1.12); background: #ffe066; }
+  .tile .pts { position: absolute; bottom: 1px; right: 3px; font-size: 8px; color: #666; }
+
+  .controls { display: flex; flex-direction: column; gap: 8px; }
+  .controls button {
+    padding: 10px 16px; border: none; border-radius: 6px; font-size: 14px;
+    font-weight: bold; cursor: pointer; transition: background 0.2s;
+  }
+  .controls button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-submit { background: #2d6a4f; color: #fff; }
+  .btn-submit:hover:not(:disabled) { background: #3a8963; }
+  .btn-recall { background: #555; color: #fff; }
+  .btn-recall:hover:not(:disabled) { background: #777; }
+  .btn-shuffle { background: #444; color: #fff; }
+  .btn-shuffle:hover:not(:disabled) { background: #666; }
+  .btn-pass { background: #7b2d2d; color: #fff; }
+  .btn-pass:hover:not(:disabled) { background: #a04040; }
+
+  .message { margin-top: 8px; font-size: 13px; color: #e2b04a; min-height: 20px; }
+  .tiles-remaining { font-size: 12px; color: #aaa; margin-top: 4px; }
+  .connection-status { font-size: 11px; margin-top: 4px; }
+  .connected { color: #4caf50; }
+  .disconnected { color: #f44336; }
+
+  @media (max-width: 640px) {
+    .board { grid-template-columns: repeat(15, 22px); grid-template-rows: repeat(15, 22px); }
+    .cell { width: 22px; height: 22px; font-size: 7px; }
+    .cell.has-tile, .cell.pending-tile { font-size: 12px; }
+  }
+</style>
+</head>
+<body>
+
+<h1>SCRABBLE</h1>
+
+<!-- Lobby Screen -->
+<div class="lobby" id="lobby">
+  <h2>Multiplayer Game</h2>
+  <input type="text" id="playerNameInput" placeholder="Your name (e.g. Henry)" maxlength="20" />
+  <button class="btn-create" onclick="createGame()">Create New Game</button>
+  <div class="or">- OR -</div>
+  <input type="text" id="gameCodeInput" placeholder="Enter game code" maxlength="6" style="text-transform: uppercase; letter-spacing: 3px; text-align: center;" />
+  <button class="btn-join" onclick="joinGame()">Join Game</button>
+  <div class="status" id="lobbyStatus"></div>
+  <div id="waitingArea" style="display:none;">
+    <div class="waiting">Waiting for opponent to join...</div>
+    <div class="game-code-display" id="gameCodeDisplay"></div>
+    <div class="waiting">Share this code!</div>
+  </div>
+</div>
+
+<!-- Game Screen -->
+<div class="game-container" id="gameContainer">
+  <div class="turn-banner" id="turnBanner"></div>
+  <div class="scores">
+    <div class="player score-p1" id="scoreP1"></div>
+    <div class="player score-p2" id="scoreP2"></div>
+  </div>
+
+  <div class="board-wrapper">
+    <div class="board" id="board"></div>
+    <div class="sidebar">
+      <div class="rack-section">
+        <h3 id="rackLabel">Your Rack</h3>
+        <div class="rack" id="currentRack"></div>
+      </div>
+      <div class="controls">
+        <button class="btn-submit" id="btnSubmit" onclick="submitWord()">Submit Word</button>
+        <button class="btn-recall" id="btnRecall" onclick="recallTiles()">Recall Tiles</button>
+        <button class="btn-shuffle" onclick="shuffleRack()">Shuffle Rack</button>
+        <button class="btn-pass" id="btnPass" onclick="passTurn()">Pass Turn</button>
+      </div>
+      <div class="message" id="message"></div>
+      <div class="tiles-remaining" id="tilesRemaining"></div>
+      <div class="connection-status" id="connStatus"></div>
+    </div>
+  </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+const API_BASE = window.location.origin;
+let socket = null;
+
+// Game state
+let gameCode = null;
+let playerName = null;
+let myPlayerNum = 0;
+let gameState = null;
+let selectedTileIdx = null;
+let pendingPlacements = []; // {r, c, letter, pts, rackIdx, isBlank}
+let localRack = [];
+
+const TILE_PTS = {
+  A:1,B:3,C:3,D:2,E:1,F:4,G:2,H:4,I:1,J:8,K:5,L:1,M:3,N:1,O:1,P:3,
+  Q:10,R:1,S:1,T:1,U:1,V:4,W:4,X:8,Y:4,Z:10,'_':0
+};
+
+const BONUS = {};
+function setBonus(cells, type) { cells.forEach(c => BONUS[c] = type); }
+setBonus(['0,0','0,7','0,14','7,0','7,14','14,0','14,7','14,14'], 'tw');
+setBonus(['1,1','1,13','2,2','2,12','3,3','3,11','4,4','4,10','10,4','10,10','11,3','11,11','12,2','12,12','13,1','13,13'], 'dw');
+setBonus(['1,5','1,9','5,1','5,5','5,9','5,13','9,1','9,5','9,9','9,13','13,5','13,9'], 'tl');
+setBonus(['0,3','0,11','2,6','2,8','3,0','3,7','3,14','6,2','6,6','6,8','6,12','7,3','7,11','8,2','8,6','8,8','8,12','11,0','11,7','11,14','12,6','12,8','14,3','14,11'], 'dl');
+BONUS['7,7'] = 'center';
+const BONUS_LABELS = { tw:'TW', dw:'DW', tl:'TL', dl:'DL', center:'\u2605' };
+
+// --- Socket Connection ---
+function connectSocket() {
+  socket = io(API_BASE);
+
+  socket.on('connect', () => {
+    setConnStatus(true);
+    if (gameCode && playerName) {
+      socket.emit('scrabble:join', { gameCode, playerName });
+    }
+  });
+
+  socket.on('disconnect', () => setConnStatus(false));
+
+  socket.on('scrabble:state-update', (data) => {
+    gameState = data.state;
+    localRack = [...gameState.myRack];
+    myPlayerNum = gameState.myPlayerNum;
+    pendingPlacements = [];
+    selectedTileIdx = null;
+    renderGame();
+    if (data.message) msg(data.message);
+  });
+
+  socket.on('scrabble:player-joined', (data) => {
+    msg(data.playerName + ' joined the game!');
+    // Request fresh state
+    socket.emit('scrabble:request-state', { gameCode, playerName });
+  });
+
+  socket.on('scrabble:error', (data) => {
+    msg('Error: ' + data.message);
+  });
+}
+
+function setConnStatus(connected) {
+  const el = document.getElementById('connStatus');
+  if (connected) {
+    el.className = 'connection-status connected';
+    el.textContent = 'Connected';
+  } else {
+    el.className = 'connection-status disconnected';
+    el.textContent = 'Disconnected - reconnecting...';
+  }
+}
+
+// --- Lobby ---
+async function createGame() {
+  playerName = document.getElementById('playerNameInput').value.trim();
+  if (!playerName) { lobbyMsg('Enter your name first.'); return; }
+
+  lobbyMsg('Creating game...');
+  try {
+    const res = await fetch(API_BASE + '/api/scrabble/new', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerName }),
+    });
+    const data = await res.json();
+    if (!data.success) { lobbyMsg(data.message); return; }
+
+    gameCode = data.gameCode;
+    document.getElementById('gameCodeDisplay').textContent = gameCode;
+    document.getElementById('waitingArea').style.display = 'block';
+    lobbyMsg('Game created! Share the code with your opponent.');
+
+    connectSocket();
+    socket.on('connect', () => {
+      socket.emit('scrabble:join', { gameCode, playerName });
+    });
+  } catch (e) {
+    lobbyMsg('Failed to connect to server. Is it running?');
+  }
+}
+
+async function joinGame() {
+  playerName = document.getElementById('playerNameInput').value.trim();
+  const code = document.getElementById('gameCodeInput').value.trim().toUpperCase();
+  if (!playerName) { lobbyMsg('Enter your name first.'); return; }
+  if (!code) { lobbyMsg('Enter a game code.'); return; }
+
+  lobbyMsg('Joining game...');
+  try {
+    const res = await fetch(API_BASE + '/api/scrabble/' + code + '/join', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerName }),
+    });
+    const data = await res.json();
+    if (!data.success) { lobbyMsg(data.message); return; }
+
+    gameCode = data.gameCode;
+    myPlayerNum = data.playerNum;
+
+    connectSocket();
+    socket.on('connect', () => {
+      socket.emit('scrabble:join', { gameCode, playerName });
+      // Fetch initial state
+      setTimeout(() => {
+        socket.emit('scrabble:request-state', { gameCode, playerName });
+      }, 300);
+    });
+
+    // Show game screen
+    document.getElementById('lobby').style.display = 'none';
+    document.getElementById('gameContainer').style.display = 'block';
+    lobbyMsg('');
+  } catch (e) {
+    lobbyMsg('Failed to connect to server.');
+  }
+}
+
+function lobbyMsg(text) {
+  document.getElementById('lobbyStatus').textContent = text;
+}
+
+// --- Rendering ---
+function renderGame() {
+  if (!gameState) return;
+
+  // Switch to game view
+  document.getElementById('lobby').style.display = 'none';
+  document.getElementById('gameContainer').style.display = 'block';
+
+  const isMyTurn = gameState.currentPlayer === myPlayerNum && gameState.status === 'active';
+
+  // Turn banner
+  const banner = document.getElementById('turnBanner');
+  if (gameState.status === 'finished') {
+    banner.textContent = 'Game Over! ' + (gameState.winner === 'Tie' ? "It's a tie!" : gameState.winner + ' wins!');
+    banner.className = 'turn-banner turn-over';
+  } else if (gameState.status === 'waiting') {
+    banner.textContent = 'Waiting for opponent...';
+    banner.className = 'turn-banner turn-theirs';
+  } else {
+    banner.textContent = isMyTurn ? "Your Turn!" : (gameState.currentPlayer === 1 ? gameState.player1Name : gameState.player2Name) + "'s Turn";
+    banner.className = 'turn-banner ' + (isMyTurn ? 'turn-mine' : 'turn-theirs');
+  }
+
+  // Scores
+  const p1Active = gameState.currentPlayer === 1 && gameState.status === 'active';
+  const p2Active = gameState.currentPlayer === 2 && gameState.status === 'active';
+  document.getElementById('scoreP1').textContent = (gameState.player1Name || 'Player 1') + ': ' + gameState.player1Score;
+  document.getElementById('scoreP1').className = 'player score-p1' + (p1Active ? ' active' : '');
+  document.getElementById('scoreP2').textContent = (gameState.player2Name || 'Waiting...') + ': ' + gameState.player2Score;
+  document.getElementById('scoreP2').className = 'player score-p2' + (p2Active ? ' active' : '');
+
+  // Controls
+  const disabled = !isMyTurn;
+  document.getElementById('btnSubmit').disabled = disabled;
+  document.getElementById('btnRecall').disabled = disabled;
+  document.getElementById('btnPass').disabled = disabled;
+
+  document.getElementById('tilesRemaining').textContent = 'Tiles in bag: ' + gameState.bagCount;
+
+  renderBoard();
+  renderRack();
+}
+
+function renderBoard() {
+  if (!gameState) return;
+  const boardEl = document.getElementById('board');
+  boardEl.innerHTML = '';
+  const boardData = gameState.board;
+
+  for (let r = 0; r < 15; r++) {
+    for (let c = 0; c < 15; c++) {
+      const cell = document.createElement('div');
+      cell.classList.add('cell');
+      const key = r + ',' + c;
+      const pending = pendingPlacements.find(p => p.r === r && p.c === c);
+
+      if (boardData[r][c]) {
+        cell.classList.add('has-tile');
+        cell.innerHTML = boardData[r][c].letter + '<span class="points">' + boardData[r][c].pts + '</span>';
+      } else if (pending) {
+        cell.classList.add('pending-tile');
+        cell.innerHTML = pending.letter + '<span class="points">' + pending.pts + '</span>';
+        cell.onclick = () => recallSingleTile(r, c);
+      } else {
+        const bonus = BONUS[key];
+        cell.classList.add(bonus || 'normal');
+        cell.textContent = BONUS_LABELS[bonus] || '';
+        cell.onclick = () => placeTile(r, c);
+      }
+      boardEl.appendChild(cell);
+    }
+  }
+}
+
+function renderRack() {
+  const rackEl = document.getElementById('currentRack');
+  rackEl.innerHTML = '';
+  const usedIndices = new Set(pendingPlacements.map(p => p.rackIdx));
+
+  localRack.forEach((letter, i) => {
+    if (usedIndices.has(i)) return;
+    const tile = document.createElement('div');
+    tile.classList.add('tile');
+    if (selectedTileIdx === i) tile.classList.add('selected');
+    const display = letter === '_' ? ' ' : letter;
+    const pts = TILE_PTS[letter] || 0;
+    tile.innerHTML = display + '<span class="pts">' + pts + '</span>';
+    tile.onclick = () => selectTile(i);
+    rackEl.appendChild(tile);
+  });
+}
+
+// --- Tile Interaction ---
+function selectTile(rackIdx) {
+  if (!gameState || gameState.currentPlayer !== myPlayerNum || gameState.status !== 'active') return;
+  let letter = localRack[rackIdx];
+  if (letter === '_') {
+    const chosen = prompt('Blank tile! Enter a letter (A-Z):');
+    if (!chosen || chosen.length !== 1 || !/[a-zA-Z]/.test(chosen)) { msg('Invalid letter.'); return; }
+    localRack[rackIdx] = chosen.toUpperCase() + '*';
+  }
+  selectedTileIdx = rackIdx;
+  renderRack();
+  msg('Click a board cell to place the tile.');
+}
+
+function placeTile(r, c) {
+  if (!gameState || gameState.currentPlayer !== myPlayerNum || gameState.status !== 'active') return;
+  if (selectedTileIdx === null) { msg('Select a tile from your rack first.'); return; }
+  let letter = localRack[selectedTileIdx];
+  let pts = TILE_PTS[letter] ?? 0;
+  let displayLetter = letter;
+  let isBlank = false;
+  if (typeof letter === 'string' && letter.endsWith('*')) {
+    displayLetter = letter[0];
+    pts = 0;
+    isBlank = true;
+  }
+  pendingPlacements.push({ r, c, letter: displayLetter, pts, rackIdx: selectedTileIdx, isBlank });
+  selectedTileIdx = null;
+  renderBoard();
+  renderRack();
+  msg('Tile placed. Continue placing or submit.');
+}
+
+function recallSingleTile(r, c) {
+  const idx = pendingPlacements.findIndex(p => p.r === r && p.c === c);
+  if (idx === -1) return;
+  const removed = pendingPlacements.splice(idx, 1)[0];
+  if (removed.isBlank) localRack[removed.rackIdx] = '_';
+  selectedTileIdx = null;
+  renderBoard();
+  renderRack();
+  msg('Tile recalled.');
+}
+
+function recallTiles() {
+  pendingPlacements.forEach(p => {
+    if (p.isBlank) localRack[p.rackIdx] = '_';
+  });
+  pendingPlacements = [];
+  selectedTileIdx = null;
+  renderBoard();
+  renderRack();
+  msg('All tiles recalled.');
+}
+
+function shuffleRack() {
+  for (let i = localRack.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [localRack[i], localRack[j]] = [localRack[j], localRack[i]];
+  }
+  // Re-map pending placement rackIdx values won't match anymore, so recall first
+  recallTiles();
+  renderRack();
+}
+
+// --- Actions ---
+function submitWord() {
+  if (!gameState || pendingPlacements.length === 0) { msg('Place at least one tile.'); return; }
+
+  // Send placements to server
+  const placements = pendingPlacements.map(p => ({
+    r: p.r,
+    c: p.c,
+    letter: p.letter,
+    isBlank: p.isBlank,
+  }));
+
+  socket.emit('scrabble:submit-word', { gameCode, playerName, placements });
+  msg('Submitting...');
+}
+
+function passTurn() {
+  if (!gameState) return;
+  recallTiles();
+  socket.emit('scrabble:pass-turn', { gameCode, playerName });
+  msg('Passing turn...');
+}
+
+function msg(text) {
+  document.getElementById('message').textContent = text;
+}
+</script>
+</body>
+</html>
