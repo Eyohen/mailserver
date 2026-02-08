@@ -54,7 +54,7 @@ app.use('/api', notificationRoutes);
 app.use('/api/external-chat', externalChatRoutes);
 app.use('/api/scrabble', scrabbleRoutes);
 
-// Serve scrabble HTML
+// Serve scrabble game (all external files, CSP-safe)
 app.use('/scrabble', express.static(require('path').join(__dirname, 'scrabble-game')));
 
 // Socket.IO for real-time features
